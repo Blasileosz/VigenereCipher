@@ -1,6 +1,7 @@
 import re
+import os
 
-dictionary = open("./words.txt").read().split("\n")
+dictionary = open(os.path.dirname(os.path.abspath(__file__)) + "/words.txt").read().split("\n")
 dictionary.pop() # Remove the last empty row
 
 possibleKeyChars = "abcdefghijklmnopqrstuvwxyz "
@@ -11,20 +12,18 @@ def CharCode(char:str) -> int:
 def CodeChar(code:int) -> str:
 	return possibleKeyChars[code % 27]
 
-message1 = "curiosity killed the cat" # 24
-message2 = "early bird catches the worm" # 27
-
-# When strigs have space at the same index
-message1 = "application fund borrow suppose" # 31
-message2 = "wake war reinforce head blood" # 29
-
-#message1 = "pole his surround treaty cause" # 30
-#message2 = "flower wet oil scared vast" # 26
-
-encryptionKey = "abcdefghijklmnopqrstuvwxyz abcdefghijklmnopqrstuvwxyz "
-
 # Returns the cipher
 def Encrypt(message:str, key:str) -> str:
+
+	if len(key) < len(message):
+		raise AttributeError("Encryption key cannot be shorter than message")
+	
+	if not ValidatePlaintext(message):
+		raise AttributeError("Message must consist of valid words")
+	
+	if not ValidateKey(message):
+		raise AttributeError("Key must consist of valid characters")
+
 	ciphertext = ""
 
 	for mChar, kChar in zip(message, key):
@@ -37,6 +36,14 @@ def Encrypt(message:str, key:str) -> str:
 # The first argument accepts a suspected plaintext or an encryption key
 # Returns the key or the plaintext based on which one is supplied in the first argument
 def Decrypt(plaintextOrKey:str, ciphertext:str) -> str:
+	
+	if not ValidateKey(ciphertext):
+		raise AttributeError("Ciphertext must consist of valid characters")
+	
+	# Works as long as the dictionary only contains lowercase words
+	if not (ValidateKey(plaintextOrKey) or plaintextOrKey == ''):
+		raise AttributeError("plaintextOrKey argument must consist of valid characters")
+	
 	keyOrPlaintext = ""
 
 	for mChar, cChar in zip(plaintextOrKey, ciphertext):
@@ -47,24 +54,24 @@ def Decrypt(plaintextOrKey:str, ciphertext:str) -> str:
 	return keyOrPlaintext
 
 def ValidateKey(key:str) -> bool:
-	return re.match("^[a-z\s]+$", key)
+	return bool(re.match("^[a-z\s]+$", key))
 
 def ValidatePlaintext(plaintext:str) -> bool:
 	words = plaintext.split(' ')
 	return set(words).issubset(dictionary)
 
 # Validates whether the key decrypts the ciphertexts to a valid sentence
-def ValidateKey(ciphertext1:str, ciphertext2:str, key:str) -> bool:
+def ValidateSuspectedKey(ciphertext1:str, ciphertext2:str, key:str) -> bool:
 	plaintext1 = Decrypt(key, ciphertext1)
 	plaintext2 = Decrypt(key, ciphertext2)
 
-	return ValidatePlaintext(plaintext1 + ' ' + plaintext2)
+	return ValidatePlaintext(plaintext1 + ' ' + plaintext2) and len(key) >= min(len(ciphertext1), len(ciphertext2))
 
 
 # partialKeyValidFor is True if it decrypts the first ciphertext, otherwise the second
 def BruteForceSlice(ciphertext1:str, ciphertext2:str, knownPartialKey:str, partialKeyValidFor:bool) -> list[str]:
 
-	print()
+	#print()
 
 	completeCiphertext = ciphertext1 if partialKeyValidFor else ciphertext2
 	partialCiphertext = ciphertext2 if partialKeyValidFor else ciphertext1
@@ -73,15 +80,15 @@ def BruteForceSlice(ciphertext1:str, ciphertext2:str, knownPartialKey:str, parti
 	partialPlaintext = Decrypt(knownPartialKey, partialCiphertext)
 	partialWordStart = partialPlaintext.rfind(" ") + 1
 
-	print(f"Complete ciphertext decrypted: '{completePlaintext}'")
-	print(f"Partial ciphertext decrypted:  '{partialPlaintext}'")
-	print(f"Partial plaintext: '{partialPlaintext}' start at {partialWordStart} (next partial word: '{partialPlaintext[partialWordStart:]}')")
+	#print(f"Complete ciphertext decrypted: '{completePlaintext}'")
+	#print(f"Partial ciphertext decrypted:  '{partialPlaintext}'")
+	#print(f"Partial plaintext: '{partialPlaintext}' start at {partialWordStart} (next partial word: '{partialPlaintext[partialWordStart:]}')")
 
-	validEndings = list(word for word in dictionary if word.startswith(partialPlaintext[partialWordStart:])) # TODO: Needs checked here and at the end of the function?
+	validEndings = [word for word in dictionary if word.startswith(partialPlaintext[partialWordStart:])] # TODO: Wouldn't need to be computed again, because allMatches already had done it
 	if partialPlaintext[partialWordStart:] in validEndings:
 		validEndings.remove(partialPlaintext[partialWordStart:])
 		validEndings.append(partialPlaintext[partialWordStart:] + " ")
-	print("Valid endings for word:", len(validEndings))
+	#print("Valid endings for word:", len(validEndings))
 
 	# Try all words
 	# Possible optimization: If suprise doesn't work, suprised or suprisingly isn't going to either
@@ -120,34 +127,52 @@ def BruteForceSlice(ciphertext1:str, ciphertext2:str, knownPartialKey:str, parti
 			#print(f"For '{partialPlaintext[:partialWordStart] + suspectedMessage}' found plaintext '{plaintext2}' with {len(allMatches)} matches using {partialKey:^30} as key")
 			validKeys.append(partialKey)
 
-	print("Correct endings:", len(validKeys))
+	#print("Correct endings:", len(validKeys))
 	return validKeys
 
-ciphertext1 = Encrypt(message1, encryptionKey)
-ciphertext2 = Encrypt(message2, encryptionKey)
-print("Given ciphertexts:", ciphertext1, ciphertext2)
 
-keyStepper = 0
-possibleKeys = [("", False)]
+def SolveEncryptionKey(ciphertext1:str, ciphertext2:str) -> list[str]:
+	keyStepper = 0
+	keyBuffer = [""]
+	keyMessageValidityBuffer = [False]
 
-while keyStepper < len(possibleKeys):
-	nthKey = possibleKeys[keyStepper]
+	while keyStepper < len(keyBuffer):
+		nthKey = keyBuffer[keyStepper]
+		nthKeyValidity = keyMessageValidityBuffer[keyStepper]
 
-	for newkey in BruteForceSlice(ciphertext1, ciphertext2, nthKey[0], nthKey[1]):
-		if (newkey, False) not in possibleKeys and (newkey, True) not in possibleKeys: # Two separate branches may reach the same key
-			possibleKeys.append((newkey, not nthKey[1]))
+		for newkey in BruteForceSlice(ciphertext1, ciphertext2, nthKey, nthKeyValidity):
+			if newkey not in keyBuffer: # Two separate branches may reach the same key
+				keyBuffer.append(newkey)
+				keyMessageValidityBuffer.append(not nthKeyValidity)
 
-	keyStepper += 1
+		keyStepper += 1
 
-# (3) abcdefghijklmnopqrstuvwcsht -> (3) abcdefghijklmnopqrstuvwc -> (3) abcdefghijklmnopqrstuv -> (3) abcdefghijklmnopqrst -> (3) abcdefghijklmnopqr
+	# TODO: This filter could be removed, if BruteForceSlice was recursive
+	validKeys = list(filter(lambda key: ValidateSuspectedKey(ciphertext1, ciphertext2, key), keyBuffer))
 
-# abcdefghijklmnop
-# abcdefghijklmn
-# abcdefghijklmnopq
+	# TODO: handle when the entire key could not be retrieved
 
-print("All keys:", len(possibleKeys))
+	return validKeys
 
-print("Valid keys:")
-for key, _ in possibleKeys:
-	if len(key) == max(len(ciphertext1), len(ciphertext2)) and ValidateKey(ciphertext1, ciphertext2, key):
-		print(f"#{key}# -> '{Decrypt(key, ciphertext1)}' --- '{Decrypt(key, ciphertext2)}'")
+
+# Initial whitespace is included in the length and also the output
+def GetAllEndings(length:int, string:str = "") -> list[str]:
+
+	searchLength = length - len(string)
+
+	if searchLength == 0:
+		return [string]
+	
+	if searchLength == 1:
+		return []
+	
+	validWords = list(filter(lambda word: len(word) < searchLength, dictionary))
+
+	output = []
+	for word in validWords:
+		sentence = string + ' ' + word
+		completeSentences = GetAllEndings(length, sentence)
+
+		output += completeSentences
+
+	return output
