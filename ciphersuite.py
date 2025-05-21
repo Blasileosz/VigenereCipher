@@ -1,6 +1,8 @@
 import re
 import os
 
+import time
+
 dictionary = open(os.path.dirname(os.path.abspath(__file__)) + "/words.txt").read().split("\n")
 dictionary.pop() # Remove the last empty row
 
@@ -69,6 +71,72 @@ def ValidateSuspectedKey(ciphertext1:str, ciphertext2:str, key:str) -> bool:
 
 
 # partialKeyValidFor is True if it decrypts the first ciphertext, otherwise the second
+def SolveEncryptionKeyRecursive(ciphertext1:str, ciphertext2:str, knownPartialKey:str = "", partialKeyValidFor:bool = False, validEndings: list[str] = dictionary) -> list[str]:
+
+	print()
+
+	completeCiphertext = ciphertext1 if partialKeyValidFor else ciphertext2
+	partialCiphertext = ciphertext2 if partialKeyValidFor else ciphertext1
+
+	completePlaintext = Decrypt(knownPartialKey, completeCiphertext)
+	partialPlaintext = Decrypt(knownPartialKey, partialCiphertext)
+	partialWordStart = partialPlaintext.rfind(" ") + 1
+
+	print(f"Complete ciphertext decrypted: '{completePlaintext}'")
+	print(f"Partial ciphertext decrypted:  '{partialPlaintext}'")
+	print(f"Partial plaintext: '{partialPlaintext}' start at {partialWordStart} (next partial word: '{partialPlaintext[partialWordStart:]}')")
+
+	#validEndings = [word for word in dictionary if word.startswith(partialPlaintext[partialWordStart:])] # TODO: Wouldn't need to be computed again, because allMatches already had done it
+	if partialPlaintext[partialWordStart:] in validEndings:
+		validEndings.remove(partialPlaintext[partialWordStart:])
+		validEndings.append(partialPlaintext[partialWordStart:] + " ")
+	#print("Valid endings for word:", len(validEndings))
+
+	# Try all words
+	# Possible optimization: If suprise doesn't work, suprised or suprisingly isn't going to either
+	validKeys = []
+	for suspectedMessage in validEndings:
+
+		if len(partialPlaintext[:partialWordStart] + suspectedMessage) > len(partialCiphertext):
+			continue
+
+		# Derive the first part of the key
+		partialKey = Decrypt(partialPlaintext[:partialWordStart] + suspectedMessage, partialCiphertext)
+
+		# Decrypt message2 with the partial key and check if any words exist with that begining
+		# Using the partial key, decrypt the first part of the other plaintext
+		plaintext2 = Decrypt(partialKey, completeCiphertext)
+
+		# Plaintexts may not begin with a whitespace (may casue problems later)
+		if plaintext2[0] == " ":
+			continue
+
+		
+		plaintextParts = plaintext2.split(" ")
+
+		# Check entire words if they exist (does verify the first words multiple times)
+		# Should skip this if only one word is in the list (though it is skipped since [:-1] returns an empty array, and an empty set is subset of all sets)
+		entireWordsExist = set(plaintextParts[:-1]).issubset(dictionary)
+		if not entireWordsExist:
+			continue
+
+		if len(partialKey) >= min(len(ciphertext1), len(ciphertext2)) and plaintextParts[-1] in dictionary:
+			validKeys.append(partialKey)
+			continue
+
+		# Check if the last part of the plaintext is a valid start of a word
+		lastPart = plaintextParts[-1]
+		allMatches = [word for word in dictionary if word.startswith(lastPart)]
+		
+
+		if len(allMatches) > 0:
+			#print(f"For '{partialPlaintext[:partialWordStart] + suspectedMessage}' found plaintext '{plaintext2}' with {len(allMatches)} matches using {partialKey:^30} as key")
+			validKeys += SolveEncryptionKeyRecursive(ciphertext1, ciphertext2, partialKey, not partialKeyValidFor, allMatches)
+
+	#print("Correct endings:", len(validKeys))
+	return list(set(validKeys))
+
+
 def BruteForceSlice(ciphertext1:str, ciphertext2:str, knownPartialKey:str, partialKeyValidFor:bool) -> list[str]:
 
 	#print()
@@ -130,7 +198,6 @@ def BruteForceSlice(ciphertext1:str, ciphertext2:str, knownPartialKey:str, parti
 	#print("Correct endings:", len(validKeys))
 	return validKeys
 
-
 def SolveEncryptionKey(ciphertext1:str, ciphertext2:str) -> list[str]:
 	keyStepper = 0
 	keyBuffer = [""]
@@ -176,3 +243,19 @@ def GetAllEndings(length:int, string:str = "") -> list[str]:
 		output += completeSentences
 
 	return output
+
+if __name__ == "__main__":
+	k = "abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz"
+	# civil commitment native pray mess
+	# criticize specifically limited agency principal
+
+	# curiosity killed the cat
+	# early bird catches the worm
+	ciphertext1 = Encrypt("civil commitment native pray mess", k)
+	ciphertext2 = Encrypt("criticize specifically limited agency principal", k)
+	start = time.time()
+	keys = SolveEncryptionKeyRecursive(ciphertext1, ciphertext2)
+	end = time.time()
+	print("Time taken: ", end - start)
+	for key in keys:
+		print(f"#{key}# -> '{Decrypt(key, ciphertext1)}' --- '{Decrypt(key, ciphertext2)}'")

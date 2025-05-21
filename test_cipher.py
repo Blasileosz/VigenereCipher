@@ -56,6 +56,15 @@ class TestCipher(unittest.TestCase):
 
 		self.assertIn(self.testKey[:47], validKeys, "None of the found keys decrypt to the original messages")
 
+	def test_RecursiveVSOld(self):
+		ciphertext1 = ciphersuite.Encrypt("curiosity killed the cat", self.testKey)
+		ciphertext2 = ciphersuite.Encrypt("early bird catches the worm", self.testKey)
+		
+		validKeys1 = ciphersuite.SolveEncryptionKey(ciphertext1, ciphertext2)
+		validKeys2 = ciphersuite.SolveEncryptionKeyRecursive(ciphertext1, ciphertext2)
+
+		self.assertEqual(set(validKeys1), set(validKeys2), "The two functions output does not match")
+
 	def test_EndingGenerator(self):
 		stringLen = random.randint(5, 9) # Takes a while to compute
 		endings = ciphersuite.GetAllEndings(stringLen)
